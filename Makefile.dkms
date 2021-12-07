@@ -1,0 +1,28 @@
+MOD_NAME := bpctl_mod
+MOD_VERSION := $(shell awk -F '=' '/MOD_VER/{print $$2}' < Makefile)
+DKMS_DSTDIR ?= /usr/src/$(MOD_NAME)-$(MOD_VERSION)
+CURDIR = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
+.PHONY: all install_sources install build uninstall
+
+all: install
+
+install: build
+	dkms install -m $(MOD_NAME) -v $(MOD_VERSION)
+	install bpctl_start /bin
+
+build: install_sources
+	dkms build -m $(MOD_NAME) -v $(MOD_VERSION)
+
+install_sources:
+	mkdir -p $(DKMS_DSTDIR)
+	install -o root -g root -m 0755 -d $(DKMS_DSTDIR)
+	cp -t $(DKMS_DSTDIR)/ $(CURDIR)/*
+	sed -i "s/@MOD_NAME@/$(MOD_NAME)/g" "$(DKMS_DSTDIR)/dkms.conf"
+	sed -i "s/@MOD_VERSION@/$(MOD_VERSION)/g" "$(DKMS_DSTDIR)/dkms.conf"
+	dkms add -m $(MOD_NAME) -v $(MOD_VERSION)
+
+uninstall:
+	dkms remove -m $(MOD_NAME) -v $(MOD_VERSION) --all
+	rm -rf $(DKMS_DSTDIR)
+	rm -rf /bin/bpctl_start
