@@ -1,7 +1,5 @@
-#!/bin/sh
+#!/usr/bin/env sh
+set -eu
 
-/sbin/rmmod bpctl_mod $* || exit 1
-
-rm -f /dev/bpctl0 /dev/bpctl
-
-exit 0
+rm -f /dev/bpctl? /dev/bpctl
+/sbin/modprobe -r bpctl_mod
