@@ -557,6 +557,10 @@ static inline unsigned int jiffies_to_msecs(const unsigned long j)
 #define SILICOM_PE340G2BPI71QS4_SSID 0x0512
 #define SILICOM_PE340G2BPI71QL4_SSID 0x0513
 
+#define SILICOM_PE3100G2BPI810_SSID 0x0002
+#define SILICOM_P4CG2BPI81ZS4_SSID 0x02b8
+#define SILICOM_P4CG2BPI81ZL4_SSID 0x02b9
+
 
 #define BP40_IF_SERIES(pid) \
 ((pid==SILICOM_PE310G4BPI71SRD_SSID)|| \
@@ -566,6 +570,11 @@ static inline unsigned int jiffies_to_msecs(const unsigned long j)
 (pid==SILICOM_PE340G2BPI71QS4_SSID)|| \
 (pid==SILICOM_PE340G2BPI71QS43_SSID)|| \
 (pid==SILICOM_PE340G2BPI71QL4_SSID))
+
+#define BP100_IF_SERIES(pid) \
+((pid==SILICOM_PE3100G2BPI810_SSID)|| \
+(pid==SILICOM_P4CG2BPI81ZS4_SSID)|| \
+(pid==SILICOM_P4CG2BPI81ZL4_SSID))
 
 
 #define DBI_IF_SERIES(pid) \

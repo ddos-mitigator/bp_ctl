@@ -40,7 +40,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #define APP_NAME     "Bypass-SD Control utility"
 #define COPYRT_MSG   "Copyright Silicom Ltd."
 #define PROG_NAME    "bpctl_util"
-#define UTIL_VER      "5.2.0.42"
+#define UTIL_VER      "5.2.0.46"
 
 
 #define OK                           0

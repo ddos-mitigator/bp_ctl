@@ -187,6 +187,7 @@ typedef struct _bpctl_dev {
     int   bp_540;
     int   bp_40g;
     int   bp_rang;
+    int   bp_100g;
 /* #ifdef BP_SELF_TEST */
     int (*hard_start_xmit_save) (struct sk_buff *skb,
                                  struct net_device *dev);
@@ -315,6 +316,19 @@ int get_wd_expire_fn (bpctl_dev_t *pbpctl_dev);
 
 int wdt_on(bpctl_dev_t *pbpctl_dev, unsigned int timeout);
 
+#ifndef RHEL_RELEASE_CODE
+/* NOTE: RHEL_RELEASE_* introduced in RHEL4.5 */
+#define RHEL_RELEASE_CODE 0
+#endif
+
+#ifndef RHEL_RELEASE_VERSION
+#define RHEL_RELEASE_VERSION(a,b) (((a) << 8) + (b))
+#endif
+
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(9,1)) 
+#undef PDE_DATA
+#define PDE_DATA pde_data
+#endif
 
 static int bp_get_dev_idx_bsf(struct net_device *dev, int *index)
 {
@@ -454,7 +468,7 @@ static int bp_device_event(struct notifier_block *unused,
 				return NOTIFY_DONE;
 			}	
 
-			if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+			if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
 			ret = get_wd_expire_fn(pbpctl_dev_m);
 			if (ret == 1)
 				printk("bpmod: %s WDT has expired\n", dev->name);	
@@ -529,23 +543,41 @@ static int device_release(struct inode *inode, struct file *file)
 
 /******************* I2C INTERFACE *****************************************************/
 static inline void setsda(bpctl_dev_t *pslcm_dev, unsigned char bit){
-	writel(0x3f80010, (void *)((pslcm_dev->mem_map) + 0x88100));
-	BP40G_RD_REG(pslcm_dev, GPIO_STAT);
-	if(bit)
-		writel(0x60, (void *)((pslcm_dev->mem_map) + 0x88184));
-	else
-		writel(0x40, (void *)((pslcm_dev->mem_map) + 0x88184));
-	BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+    if (pslcm_dev->bp_40g) {
+        writel(0x3f80010, (void *)((pslcm_dev->mem_map) + 0x88100));
+	    BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+        if(bit)
+            writel(0x60, (void *)((pslcm_dev->mem_map) + 0x88184));
+        else
+            writel(0x40, (void *)((pslcm_dev->mem_map) + 0x88184));
+        BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+    } else if (pslcm_dev->bp_100g) {
+        if(bit)
+            writel(0x16, (void *)((pslcm_dev->mem_map) + 0x880d4));
+        else
+            writel(0x12, (void *)((pslcm_dev->mem_map) + 0x880d4));
+        readl((void *)((pslcm_dev->mem_map) + 0x880d0));
+
+    }
+        
 }
 
 static inline void setscl(bpctl_dev_t *pslcm_dev, unsigned char bit){
-	writel(0x3f80010, (void *)((pslcm_dev->mem_map) + 0x88104));
-	BP40G_RD_REG(pslcm_dev, GPIO_STAT);
-	if(bit)
-		writel(0x61, (void *)((pslcm_dev->mem_map) + 0x88184));
-	else
-		writel(0x41, (void *)((pslcm_dev->mem_map) + 0x88184));
-	BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+    if (pslcm_dev->bp_40g) {
+        writel(0x3f80010, (void *)((pslcm_dev->mem_map) + 0x88104));
+        BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+        if(bit)
+            writel(0x61, (void *)((pslcm_dev->mem_map) + 0x88184));
+        else
+            writel(0x41, (void *)((pslcm_dev->mem_map) + 0x88184));
+        BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+    } else if (pslcm_dev->bp_100g) {
+        if(bit)
+            writel(0x16, (void *)((pslcm_dev->mem_map) + 0x880d0));
+        else
+            writel(0x12, (void *)((pslcm_dev->mem_map) + 0x880d0));
+        readl((void *)((pslcm_dev->mem_map) + 0x880d0));
+    }
 }
 
 
@@ -565,19 +597,34 @@ static inline void sdahi(bpctl_dev_t *pslcm_dev)
 static inline unsigned char getscl(bpctl_dev_t *pslcm_dev)
 {
 	unsigned char ctrl_ext;
-	writel(0x3f00000, (void *)((pslcm_dev->mem_map) + 0x88104));
-	BP40G_RD_REG(pslcm_dev, GPIO_STAT);
-	 ctrl_ext = BP40G_RD_REG(pslcm_dev, GPIO_STAT);
-	return ( (ctrl_ext&BIT_1)? 1:0);
+
+    if (pslcm_dev->bp_40g) {
+        writel(0x3f00000, (void *)((pslcm_dev->mem_map) + 0x88104));
+        BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+        ctrl_ext = BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+        return ( (ctrl_ext&BIT_1)? 1:0);
+    } else /*if (pslcm_dev->bp_100g)*/ {
+        ctrl_ext = readl((void *)((pslcm_dev->mem_map) + 0x880d0));
+        return ( (ctrl_ext&BIT_2)? 1:0);
+    }
 }
 
 static inline unsigned char getsda(bpctl_dev_t *pslcm_dev)
 {
 	unsigned char ctrl_ext;
-	writel(0x3f00000, (void *)((pslcm_dev->mem_map) + 0x88100));
-	BP40G_RD_REG(pslcm_dev, GPIO_STAT);
-	ctrl_ext = BP40G_RD_REG(pslcm_dev, GPIO_STAT);
-	return ( (ctrl_ext&BIT_0)? 1:0);
+
+    if (pslcm_dev->bp_40g) {
+        writel(0x3f00000, (void *)((pslcm_dev->mem_map) + 0x88100));
+        BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+        ctrl_ext = BP40G_RD_REG(pslcm_dev, GPIO_STAT);
+        return ( (ctrl_ext&BIT_0)? 1:0);
+    }  else /*if (pslcm_dev->bp_100g)*/ {
+        ctrl_ext = readl((void *)((pslcm_dev->mem_map) + 0x880d4));
+        ctrl_ext &= ~BIT_4;
+        writel(ctrl_ext, (void *)((pslcm_dev->mem_map) + 0x880d4));
+        ctrl_ext = readl((void *)((pslcm_dev->mem_map) + 0x880d4));
+        return ( (ctrl_ext&BIT_0)? 1:0);
+    }
 }
 
 
@@ -1905,17 +1952,18 @@ static int wdt_pulse(bpctl_dev_t *pbpctl_dev){
 
     if ((pbpctl_dev->bp_10g9)||
 		(pbpctl_dev->bp_40g)||
+        (pbpctl_dev->bp_100g)||
 		(pbpctl_dev->bp_rang)) {
         if (!(pbpctl_dev_c=get_status_port_fn(pbpctl_dev)))
             return -1;
     }
 #ifdef BP_SYNC_FLAG
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang))
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g))
 		spin_lock_irqsave(&pbpctl_dev_c->bypass_wr_lock, flags);
 	else
 		spin_lock_irqsave(&pbpctl_dev->bypass_wr_lock, flags);
 #else 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
 		if ((atomic_read(&pbpctl_dev_c->wdt_busy))==1)
 			return -1;
 	} else {
@@ -1990,6 +2038,10 @@ static int wdt_pulse(bpctl_dev_t *pbpctl_dev){
 		    		printk("SDP3 stuck low! 0x%x %x\n", a, BP40G_RD_REG(pbpctl_dev_c, GPIO_STAT));*/
 
 		}
+
+    } else if (pbpctl_dev->bp_100g) {
+        writel(0x16, (void *)((pbpctl_dev_c->mem_map) + 0x880cc));
+        readl((void *)((pbpctl_dev_c->mem_map) + 0x880cc)); 
 
     } else if (pbpctl_dev->bp_10g9) {
         ctrl_ext=BP10G_READ_REG(pbpctl_dev,I2CCTL);
@@ -2088,7 +2140,11 @@ static int wdt_pulse(bpctl_dev_t *pbpctl_dev){
     	printk("0x%x %d\n", BP40G_RD_REG(pbpctl_dev_c, GPIO_STAT), (long)tv.tv_usec);*/
 
 
-    } else if (pbpctl_dev->bp_10g9) {
+    } else if (pbpctl_dev->bp_100g) {
+        writel(0x12, (void *)((pbpctl_dev_c->mem_map) + 0x880cc));
+        readl((void *)((pbpctl_dev_c->mem_map) + 0x880cc)); 
+
+    }else if (pbpctl_dev->bp_10g9) {
         /*   BP10G_WRITE_REG(pbpctl_dev, I2CCTL, ((ctrl_ext|BP10G_MCLK_DATA_OUT9)&~BP10G_MDIO_DATA_OUT9));*/
         /* DATA 0 CLK 1*/
         BP10G_WRITE_REG(pbpctl_dev, I2CCTL, (ctrl_ext&~BP10G_MDIO_DATA_OUT9));
@@ -2203,6 +2259,10 @@ static int wdt_pulse(bpctl_dev_t *pbpctl_dev){
 		}
 	 /* printk("0x%x \n\n", BP40G_RD_REG(pbpctl_dev_c, GPIO_STAT)); */
 
+    } else if (pbpctl_dev->bp_100g) {
+        writel(0x16, (void *)((pbpctl_dev_c->mem_map) + 0x880cc));
+        readl((void *)((pbpctl_dev_c->mem_map) + 0x880cc)); 
+
     } else if (pbpctl_dev->bp_10g9) {
         /* BP10G_WRITE_REG(pbpctl_dev, I2CCTL, (ctrl_ext&~(BP10G_MCLK_DATA_OUT9|BP10G_MDIO_DATA_OUT9)));*/
         /* DATA 0 CLK 0 */
@@ -2245,7 +2305,7 @@ static int wdt_pulse(bpctl_dev_t *pbpctl_dev){
         (pbpctl_dev->bp_ext_ver<PXG4BPFI_VER)*/)
         pbpctl_dev->bypass_wdt_on_time=jiffies;
 #ifdef BP_SYNC_FLAG
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang))
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g))
 		spin_unlock_irqrestore(&pbpctl_dev_c->bypass_wr_lock, flags);
 	else
 		spin_unlock_irqrestore(&pbpctl_dev->bypass_wr_lock, flags);
@@ -2514,7 +2574,7 @@ static bpctl_dev_t *get_status_port_fn(bpctl_dev_t *pbpctl_dev) {
 		return NULL;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
 		if (pbpctl_dev->func_p != 0) {
 			for (idx_dev = 0; ((idx_dev < device_num)&&(bpctl_dev_arr[idx_dev].pdev != NULL)); idx_dev++) {
 				if ((bpctl_dev_arr[idx_dev].bus_p == pbpctl_dev->bus_p)&&
@@ -3783,7 +3843,7 @@ static int wdt_timer_reload(bpctl_dev_t *pbpctl_dev){
 
     int ret=0;
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         if (pbpctl_dev->bp_caps&WD_CTL_CAP) {
 			wdt_pulse(pbpctl_dev);
 			return 1;
@@ -3958,6 +4018,7 @@ int bypass_fw_ver(bpctl_dev_t *pbpctl_dev){
     if (is_bypass_fn(pbpctl_dev)) {
 		
 		if ((pbpctl_dev->bp_40g) ||
+            (pbpctl_dev->bp_100g) ||
 			(pbpctl_dev->bp_rang)) {
 			bp_cmd_t bp_cmd_buf;
 			bp_cmd_rsp_t bp_rsp_buf;
@@ -4166,7 +4227,7 @@ static int bypass_status(bpctl_dev_t *pbpctl_dev){
             return BP_NOT_CAP;
 
 
-		if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+		if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
 #if 0
 			if(pbpctl_dev->func_p == 0) {
 				ctrl_ext = BP40G_READ_GPIO_CTL(pbpctl_dev_b, 2);
@@ -4338,11 +4399,14 @@ static int wd_exp_status(bpctl_dev_t *pbpctl_dev){
 
 			} else 
 				return BP_NOT_CAP;
-#endif
-
-			
-
-		}
+#endif 
+		} else if (pbpctl_dev->bp_100g) {
+            ctrl_ext = readl((void *)((pbpctl_dev_b->mem_map) + 0x880c8));
+            ctrl_ext &= ~BIT_4;
+            writel(ctrl_ext, (void *)((pbpctl_dev_b->mem_map) + 0x880c8));
+            ctrl_ext = readl((void *)((pbpctl_dev_b->mem_map) + 0x880c8));
+            return ( (ctrl_ext&BIT_0)? 0:1);
+        }
 	}
     return BP_NOT_CAP;
 }
@@ -4876,7 +4940,7 @@ void bypass_caps_init (bpctl_dev_t *pbpctl_dev){
     }
 #endif
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
 		pbpctl_dev->bp_caps=get_bypass_caps_fn(pbpctl_dev);
 		return;
 	} 
@@ -5294,7 +5358,7 @@ int set_bypass_fn (bpctl_dev_t *pbpctl_dev, int bypass_mode){
 			return BP_NOT_CAP;
 	
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5353,7 +5417,7 @@ int get_bypass_change_fn(bpctl_dev_t *pbpctl_dev){
 	}
 
 	
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5393,7 +5457,7 @@ int set_dis_bypass_fn(bpctl_dev_t *pbpctl_dev, int dis_bypass){
 		return BP_NOT_CAP;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5448,7 +5512,7 @@ int get_dis_bypass_fn(bpctl_dev_t *pbpctl_dev){
 		return BP_NOT_CAP;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5490,7 +5554,7 @@ int set_bypass_pwoff_fn (bpctl_dev_t *pbpctl_dev, int bypass_mode){
 		return BP_NOT_CAP;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 		int ret=-1;
@@ -5536,7 +5600,7 @@ int get_bypass_pwoff_fn(bpctl_dev_t *pbpctl_dev){
 		return BP_NOT_CAP;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 		bpctl_dev_t *pbpctl_dev_c;
@@ -5581,7 +5645,7 @@ int set_bypass_pwup_fn(bpctl_dev_t *pbpctl_dev, int bypass_mode){
 	}
 
 	
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5630,7 +5694,7 @@ int get_bypass_pwup_fn(bpctl_dev_t *pbpctl_dev){
         return BP_NOT_CAP;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5675,7 +5739,7 @@ int set_bypass_wd_fn(bpctl_dev_t *pbpctl_dev, int timeout){
 		return BP_NOT_CAP;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5731,7 +5795,7 @@ int get_bypass_wd_fn(bpctl_dev_t *pbpctl_dev, int *timeout){
 		return BP_NOT_CAP;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5777,7 +5841,7 @@ int get_wd_expire_time_fn(bpctl_dev_t *pbpctl_dev, int *time_left){
 	   return BP_NOT_CAP;
    }
 	
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5838,7 +5902,7 @@ int get_wd_set_caps_fn(bpctl_dev_t *pbpctl_dev){
 	   return BP_NOT_CAP;
    }
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
         bpctl_dev_t *pbpctl_dev_c;
@@ -5890,7 +5954,7 @@ int set_std_nic_fn(bpctl_dev_t *pbpctl_dev, int nic_mode){
 		return BP_NOT_CAP;
 	}
 	
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -5940,7 +6004,7 @@ int get_std_nic_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	 if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	 if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6076,7 +6140,7 @@ int set_disc_fn (bpctl_dev_t *pbpctl_dev, int disc_mode){
 		return BP_NOT_CAP;
 	}
 	
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6131,7 +6195,7 @@ int get_disc_fn (bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	 if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	 if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6177,7 +6241,7 @@ int set_disc_pwup_fn(bpctl_dev_t *pbpctl_dev, int disc_mode){
 		return BP_NOT_CAP;
 	}
 	
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6232,7 +6296,7 @@ int get_disc_pwup_fn(bpctl_dev_t *pbpctl_dev){
 		return BP_NOT_CAP;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6278,7 +6342,7 @@ int get_disc_change_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	 if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	 if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6322,7 +6386,7 @@ int set_dis_disc_fn(bpctl_dev_t *pbpctl_dev, int dis_param){
 	}
 
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6369,7 +6433,7 @@ int get_dis_disc_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	if (((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) &&
+	if (((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) &&
 		(pbpctl_dev->bp_caps&DISC_DIS_CAP)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
@@ -6468,7 +6532,7 @@ int get_wd_exp_mode_fn(bpctl_dev_t *pbpctl_dev){
 	}
 
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6508,7 +6572,7 @@ int set_wd_exp_mode_fn(bpctl_dev_t *pbpctl_dev, int param){
 	}
 
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6564,7 +6628,7 @@ int set_tx_fn(bpctl_dev_t *pbpctl_dev, int tx_state){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 		bpctl_dev_t *pbpctl_dev_c, *pbpctl_dev_m;
@@ -6672,7 +6736,7 @@ int get_bypass_caps_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
 		
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
@@ -6722,7 +6786,7 @@ int get_bypass_caps_ex_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -6808,7 +6872,7 @@ int get_tx_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 		bpctl_dev_t *pbpctl_dev_c, *pbpctl_dev_m;
@@ -7047,7 +7111,7 @@ int set_tpl_fn(bpctl_dev_t *pbpctl_dev, int tpl_mode){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang))  {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g))  {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -7109,7 +7173,7 @@ int get_tpl_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -7157,7 +7221,7 @@ int set_bp_wait_at_pwup_fn(bpctl_dev_t *pbpctl_dev, int bp_wait_at_pwup){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -7212,7 +7276,7 @@ int get_bp_wait_at_pwup_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -7257,7 +7321,7 @@ int set_bp_hw_reset_fn(bpctl_dev_t *pbpctl_dev, int bp_hw_reset){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -7314,7 +7378,7 @@ int get_bp_hw_reset_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -7367,7 +7431,7 @@ int get_bypass_info_fn(bpctl_dev_t *pbpctl_dev, char *dev_name, char *add_param)
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -7419,7 +7483,7 @@ int set_bp_manuf_fn(bpctl_dev_t *pbpctl_dev){
 		return -1;
 	}
 
-	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang)) {
+	if ((pbpctl_dev->bp_40g) || (pbpctl_dev->bp_rang) || (pbpctl_dev->bp_100g)) {
         bp_cmd_t bp_cmd_buf;
 		bp_cmd_rsp_t bp_rsp_buf;
 
@@ -9263,6 +9327,9 @@ typedef enum {
 	PE340G2BPI71QS43,
 	PE340G2BPI71QL4,
 	ADI_RANGELEY,
+    P4CG2BPI81ZS4,
+    P4CG2BPI81ZL4,
+    PE3100G2BPI810,
 } board_t;
 
 typedef struct _bpmod_info_t {
@@ -9512,6 +9579,9 @@ dev_desc_t dev_desc[]={
 	{"Silicom Bypass PE340G2BPI71QS4 series adapter"},
 	{"Silicom Bypass PE340G2BPI71QL4 series adapter"},
 	{"Silicom Bypass ADI_RANGELEY series adapter"},
+    {"Silicom Bypass P4CG2BPI81-ZS4 series adapter"},
+    {"Silicom Bypass P4CG2BPI81-ZL4 series adapter"},
+    {"Silicom Bypass PE3100G2BPI810 series adapter"},
 
     {0},
 };
@@ -9936,6 +10006,11 @@ static bpmod_info_t tx_ctl_pci_tbl[] = {
 
 	{0x8086, 0x1f41, 0x8086, 0x1f41, ADI_RANGELEY, "ADI_RANGELEY"},
 
+    {0x8086, 0x1592, SILICOM_SVID, SILICOM_P4CG2BPI81ZS4_SSID, P4CG2BPI81ZS4, "P4CG2BPI81-ZS4"},
+    {0x8086, 0x1592, SILICOM_SVID, SILICOM_P4CG2BPI81ZL4_SSID, P4CG2BPI81ZL4, "P4CG2BPI81-ZL4"},
+
+	/* {0x8086, 0x1592, 0x8086, SILICOM_PE3100G2BPI810_SSID, PE3100G2BPI810, "PE3100G2BPI810"}, */
+
 
     /* required last entry */
     {0,}
@@ -10047,6 +10122,9 @@ static int v2_bypass_init_module(void)
                 bpctl_dev_arr[idx_dev].bp_i80=1;
 			if (BP40_IF_SERIES(pdev1->subsystem_device)) {
                 bpctl_dev_arr[idx_dev].bp_40g=1;
+			}
+			if (BP100_IF_SERIES(pdev1->subsystem_device)) {
+                bpctl_dev_arr[idx_dev].bp_100g=1;
 			}
 
 			if (bpctl_dev_arr[idx_dev].bp_10g9) {
@@ -11253,10 +11331,9 @@ get_disc_change_pfs (char *page, char **start, off_t off, int count,
     return len;
 }
 
-
-
-
+#ifndef isdigit
     #define isdigit(c) (c >= '0' && c <= '9')
+#endif
 __inline static int atoi( char **s) 
 {
     int i = 0;

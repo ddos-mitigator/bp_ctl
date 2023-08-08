@@ -1,7 +1,24 @@
                  Release Notes
        Silicom Linux Bypass-SD Control Utility
-		Version 5.2.0.42
-		  14/12/2020
+		Version 5.2.0.4
+		  06/03/2023
+
+
+v5.2.0.45
+- Removed temporary ID for 100G
+
+v5.2.0.45
+- Fixed support for P4CG2BPI81-ZS4,
+  P4CG2BPI81-ZL4 (ID's for ZL4)
+
+v5.2.0.44
+- Fixed for non-RH systems
+- Added support for P4CG2BPI81-ZS4,
+  P4CG2BPI81-ZL4
+
+v5.2.0.43
+- Added support for RH9.1
+
 v5.2.0.42
 - Added support for kernel 5.8.10
                   
