@@ -330,6 +330,12 @@ int wdt_on(bpctl_dev_t *pbpctl_dev, unsigned int timeout);
 #define PDE_DATA pde_data
 #endif
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
+#ifndef PDE_DATA
+#define PDE_DATA pde_data
+#endif
+#endif
+
 static int bp_get_dev_idx_bsf(struct net_device *dev, int *index)
 {
 	struct ethtool_drvinfo drvinfo = {0};
